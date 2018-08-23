@@ -574,10 +574,6 @@ public class Manager {
       TooBigTransactionException, TransactionExpirationException, ReceiptException,
       TransactionTraceException, OutOfSlotTimeException, UnsupportVMException {
 
-    if (!trx.validateSignature()) {
-      throw new ValidateSignatureException("trans sig validate failed");
-    }
-
     //validateFreq(trx);
     synchronized (this) {
       if (!session.valid()) {
@@ -996,19 +992,6 @@ public class Manager {
       DupTransactionException, TaposException, TransactionTraceException, OutOfSlotTimeException, UnsupportVMException {
     if (trxCap == null) {
       return false;
-    }
-    validateTapos(trxCap);
-    validateCommon(trxCap);
-
-    if (trxCap.getInstance().getRawData().getContractList().size() != 1) {
-      throw new ContractSizeNotEqualToOneException(
-          "act size should be exactly 1, this is extend feature");
-    }
-
-    validateDup(trxCap);
-
-    if (!trxCap.validateSignature()) {
-      throw new ValidateSignatureException("trans sig validate failed");
     }
 
     TransactionTrace trace = new TransactionTrace(trxCap, this);
