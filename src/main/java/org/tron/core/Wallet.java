@@ -390,7 +390,7 @@ public class Wallet {
 //        dbManager.getTransactionIdCache().put(trx.getTransactionId(), true);
 //      }
 
-      dbManager.pushTransaction(trx);
+      //dbManager.pushTransaction(trx);
       p2pNode.broadcast(message);
       return builder.setResult(true).setCode(response_code.SUCCESS).build();
     } catch (Exception e) {
