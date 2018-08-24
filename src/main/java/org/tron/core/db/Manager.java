@@ -1007,6 +1007,7 @@ public class Manager {
       throws ValidateSignatureException, ContractValidateException, ContractExeException, ReceiptException,
       AccountResourceInsufficientException, TransactionExpirationException, TooBigTransactionException,
       DupTransactionException, TaposException, TransactionTraceException, OutOfSlotTimeException, UnsupportVMException {
+    long s = System.currentTimeMillis();
     if (trxCap == null) {
       return false;
     }
@@ -1049,6 +1050,7 @@ public class Manager {
 
     transactionHistoryStore.put(trxCap.getTransactionId().getBytes(), transactionInfo);
 
+    System.out.println("process transaction used time: " + (System.currentTimeMillis() - s));
     return true;
   }
 
