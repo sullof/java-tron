@@ -20,7 +20,6 @@ package org.tron.core;
 
 import com.google.common.primitives.Longs;
 import com.google.protobuf.ByteString;
-import java.math.BigInteger;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -72,7 +71,9 @@ import org.tron.core.capsule.ProposalCapsule;
 import org.tron.core.capsule.TransactionCapsule;
 import org.tron.core.capsule.TransactionResultCapsule;
 import org.tron.core.capsule.WitnessCapsule;
+import org.tron.core.config.Parameter.ChainConstant;
 import org.tron.core.config.Parameter.ChainParameters;
+import org.tron.core.config.args.Args;
 import org.tron.core.db.AccountIdIndexStore;
 import org.tron.core.db.AccountStore;
 import org.tron.core.db.BandwidthProcessor;
@@ -140,9 +141,18 @@ public class Wallet {
     logger.info("wallet address: {}", ByteArray.toHexString(this.ecKey.getAddress()));
   }
 
-  public static boolean isConstant(ABI abi, TriggerSmartContract triggerSmartContract) {
+  public static boolean isConstant(ABI abi, TriggerSmartContract triggerSmartContract)
+      throws ContractValidateException {
     try {
-      return isConstant(abi, getSelector(triggerSmartContract.getData().toByteArray()));
+      boolean constant = isConstant(abi, getSelector(triggerSmartContract.getData().toByteArray()));
+      if (constant) {
+        if (!Args.getInstance().isSupportConstant()) {
+          throw new ContractValidateException("this node don't support constant");
+        }
+      }
+      return constant;
+    } catch (ContractValidateException e) {
+      throw e;
     } catch (Exception e) {
       return false;
     }
@@ -230,8 +240,7 @@ public class Wallet {
 
   }
 
-  public static byte[] generateContractAddress(byte[] ownerAddress,byte[] txRawDataHash) {
-
+  public static byte[] generateContractAddress(byte[] ownerAddress, byte[] txRawDataHash) {
 
     byte[] combined = new byte[txRawDataHash.length + ownerAddress.length];
     System.arraycopy(txRawDataHash, 0, combined, 0, txRawDataHash.length);
@@ -241,7 +250,7 @@ public class Wallet {
 
   }
 
-  public static byte[] generateContractAddress(byte[] transactionRootId, long nonce){
+  public static byte[] generateContractAddress(byte[] transactionRootId, long nonce) {
     byte[] nonceBytes = Longs.toByteArray(nonce);
     byte[] combined = new byte[transactionRootId.length + nonceBytes.length];
     System.arraycopy(transactionRootId, 0, combined, 0, transactionRootId.length);
@@ -280,8 +289,17 @@ public class Wallet {
     EnergyProcessor energyProcessor = new EnergyProcessor(dbManager);
     energyProcessor.updateUsage(accountCapsule);
 
+    long genesisTimeStamp = dbManager.getGenesisBlock().getTimeStamp();
+    accountCapsule.setLatestConsumeTime(genesisTimeStamp
+        + ChainConstant.BLOCK_PRODUCED_INTERVAL * accountCapsule.getLatestConsumeTime());
+    accountCapsule.setLatestConsumeFreeTime(genesisTimeStamp
+        + ChainConstant.BLOCK_PRODUCED_INTERVAL * accountCapsule.getLatestConsumeFreeTime());
+    accountCapsule.setLatestConsumeTimeForEnergy(genesisTimeStamp
+        + ChainConstant.BLOCK_PRODUCED_INTERVAL * accountCapsule.getLatestConsumeTimeForEnergy());
+
     return accountCapsule.getInstance();
   }
+
 
   public Account getAccountById(Account account) {
     AccountStore accountStore = dbManager.getAccountStore();
@@ -390,8 +408,19 @@ public class Wallet {
 //        dbManager.getTransactionIdCache().put(trx.getTransactionId(), true);
 //      }
 
+      if (dbManager.getTransactionIdCache().getIfPresent(trx.getTransactionId()) != null) {
+        logger.debug("This transaction has been processed, discard the transaction");
+        return builder.setResult(false).setCode(response_code.DUP_TRANSACTION_ERROR).build();
+      } else {
+        dbManager.getTransactionIdCache().put(trx.getTransactionId(), true);
+      }
+      if (dbManager.getDynamicPropertiesStore().supportVM()) {
+        trx.resetResult();
+      }
+      dbManager.pushTransaction(trx);
       //dbManager.pushTransaction(trx);
       p2pNode.broadcast(message);
+
       return builder.setResult(true).setCode(response_code.SUCCESS).build();
     } catch (Exception e) {
       logger.info("exception caught" + e.getMessage());
@@ -517,6 +546,30 @@ public class Wallet {
         .setKey(ChainParameters.ALLOW_CREATION_OF_CONTRACTS.name())
         .setValue(
             dynamicPropertiesStore.getAllowCreationOfContracts())
+        .build());
+
+    builder.addChainParameter(builder1
+        .setKey(ChainParameters.REMOVE_THE_POWER_OF_THE_GR.name())
+        .setValue(
+            dynamicPropertiesStore.getRemoveThePowerOfTheGr())
+        .build());
+
+    builder.addChainParameter(builder1
+        .setKey(ChainParameters.ENERGY_FEE.name())
+        .setValue(
+            dynamicPropertiesStore.getEnergyFee())
+        .build());
+
+    builder.addChainParameter(builder1
+        .setKey(ChainParameters.EXCHANGE_CREATE_FEE.name())
+        .setValue(
+            dynamicPropertiesStore.getExchangeCreateFee())
+        .build());
+
+    builder.addChainParameter(builder1
+        .setKey(ChainParameters.MAX_CPU_TIME_OF_ONE_TX.name())
+        .setValue(
+            dynamicPropertiesStore.getMaxCpuTimeOfOneTX())
         .build());
 
     return builder.build();
@@ -775,63 +828,56 @@ public class Wallet {
 
   public Transaction triggerContract(TriggerSmartContract triggerSmartContract,
       TransactionCapsule trxCap, Builder builder,
-      Return.Builder retBuilder) {
+      Return.Builder retBuilder)
+      throws ContractValidateException, ContractExeException, HeaderNotFound {
 
     ContractStore contractStore = dbManager.getContractStore();
     byte[] contractAddress = triggerSmartContract.getContractAddress().toByteArray();
     SmartContract.ABI abi = contractStore.getABI(contractAddress);
     if (abi == null) {
-      // FIXME
-      return null;
+      throw new ContractValidateException("No contract or not a smart contract");
     }
 
-    try {
-      byte[] selector = getSelector(triggerSmartContract.getData().toByteArray());
-      if (selector == null) {
-        // FIXME
-        return null;
-      }
+    byte[] selector = getSelector(triggerSmartContract.getData().toByteArray());
 
-      if (!isConstant(abi, selector)) {
-        return trxCap.getInstance();
+    if (!isConstant(abi, selector)) {
+      return trxCap.getInstance();
+    } else {
+      if (!Args.getInstance().isSupportConstant()) {
+        throw new ContractValidateException("this node don't support constant");
+      }
+      DepositImpl deposit = DepositImpl.createRoot(dbManager);
+
+      Block headBlock;
+      List<BlockCapsule> blockCapsuleList = dbManager.getBlockStore().getBlockByLatestNum(1);
+      if (CollectionUtils.isEmpty(blockCapsuleList)) {
+        throw new HeaderNotFound("latest block not found");
       } else {
-        DepositImpl deposit = DepositImpl.createRoot(dbManager);
-
-        Block headBlock;
-        List<BlockCapsule> blockCapsuleList = dbManager.getBlockStore().getBlockByLatestNum(1);
-        if (CollectionUtils.isEmpty(blockCapsuleList)) {
-          throw new HeaderNotFound("latest block not found");
-        } else {
-          headBlock = blockCapsuleList.get(0).getInstance();
-        }
-
-        Runtime runtime = new Runtime(trxCap.getInstance(), headBlock, deposit,
-            new ProgramInvokeFactoryImpl());
-        runtime.init();
-        runtime.execute();
-        runtime.go();
-        runtime.finalization();
-        // TODO exception
-        if (runtime.getResult().getException() != null) {
-//          runtime.getResult().getException().printStackTrace();
-          throw new RuntimeException("Runtime exe failed!");
-        }
-
-        ProgramResult result = runtime.getResult();
-        TransactionResultCapsule ret = new TransactionResultCapsule();
-
-        builder.addConstantResult(ByteString.copyFrom(result.getHReturn()));
-        ret.setStatus(0, code.SUCESS);
-        if (StringUtils.isNoneEmpty(runtime.getRuntimeError())) {
-          ret.setStatus(0, code.FAILED);
-          retBuilder.setMessage(ByteString.copyFromUtf8(runtime.getRuntimeError())).build();
-        }
-        trxCap.setResult(ret);
-        return trxCap.getInstance();
+        headBlock = blockCapsuleList.get(0).getInstance();
       }
-    } catch (Exception e) {
-      logger.error(e.getMessage());
-      return null;
+
+      Runtime runtime = new Runtime(trxCap.getInstance(), new BlockCapsule(headBlock), deposit,
+          new ProgramInvokeFactoryImpl());
+      runtime.execute();
+      runtime.go();
+      runtime.finalization();
+      // TODO exception
+      if (runtime.getResult().getException() != null) {
+//          runtime.getResult().getException().printStackTrace();
+        throw new RuntimeException("Runtime exe failed!");
+      }
+
+      ProgramResult result = runtime.getResult();
+      TransactionResultCapsule ret = new TransactionResultCapsule();
+
+      builder.addConstantResult(ByteString.copyFrom(result.getHReturn()));
+      ret.setStatus(0, code.SUCESS);
+      if (StringUtils.isNoneEmpty(runtime.getRuntimeError())) {
+        ret.setStatus(0, code.FAILED);
+        retBuilder.setMessage(ByteString.copyFromUtf8(runtime.getRuntimeError())).build();
+      }
+      trxCap.setResult(ret);
+      return trxCap.getInstance();
     }
   }
 
@@ -863,13 +909,10 @@ public class Wallet {
     return ret;
   }
 
-  private static boolean isConstant(SmartContract.ABI abi, byte[] selector) throws Exception {
+  private static boolean isConstant(SmartContract.ABI abi, byte[] selector)  {
 
-    if (abi.getEntrysList().size() == 0) {
+    if (selector == null || selector.length != 4 ||  abi.getEntrysList().size() == 0) {
       return false;
-    }
-    if (selector == null || selector.length != 4) {
-      throw new Exception("Selector's length or selector itself is invalid");
     }
 
     for (int i = 0; i < abi.getEntrysCount(); i++) {
@@ -903,7 +946,7 @@ public class Wallet {
       }
     }
 
-    throw new Exception("There is no the selector!");
+    return false;
   }
 
 }
