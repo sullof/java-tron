@@ -1030,22 +1030,11 @@ public class Manager {
 
     TransactionTrace trace = new TransactionTrace(trxCap, this);
 
-// TODO vm switch
-//    if (!this.dynamicPropertiesStore.supportVM() && trace.needVM()) {
-//      throw new UnsupportVMException("this node doesn't support vm, trx id: " + trxCap.getTransactionId().toString());
-//    }
-
     DepositImpl deposit = DepositImpl.createRoot(this);
     Runtime runtime = new Runtime(trace, blockCap, deposit, new ProgramInvokeFactoryImpl());
     if (runtime.isCallConstant()) {
-      // Fixme Wrong exception
-      throw new UnsupportVMException("cannot call constant method ");
+      throw new ContractValidateException("cannot call constant method ");
     }
-    // if (getDynamicPropertiesStore().supportVM()) {
-    //   if(trxCap.getInstance().getRetCount()<=0){
-    //     trxCap.setResult(new TransactionResultCapsule(contractResult.UNKNOWN));
-    //   }
-    // }
 
     consumeBandwidth(trxCap, runtime.getResult().getRet(), trace);
 
