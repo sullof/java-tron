@@ -40,9 +40,9 @@ import org.tron.core.capsule.ContractCapsule;
 import org.tron.core.capsule.TransactionCapsule;
 import org.tron.core.config.DefaultConfig;
 import org.tron.core.config.args.Args;
+import org.tron.core.exception.BalanceInsufficientException;
 import org.tron.core.exception.ContractExeException;
 import org.tron.core.exception.ContractValidateException;
-import org.tron.core.exception.OutOfSlotTimeException;
 import org.tron.protos.Contract.CreateSmartContract;
 import org.tron.protos.Contract.TriggerSmartContract;
 import org.tron.protos.Protocol.Account;
@@ -150,7 +150,6 @@ public class TransactionTraceTest {
         new ProgramInvokeFactoryImpl());
     try {
       trace.exec(runtime);
-      trace.pay();
       Assert.assertEquals(0, trace.getReceipt().getEnergyUsage());
       Assert.assertEquals(49503930, trace.getReceipt().getEnergyFee());
       // Assert.assertEquals(deployStorageDelta, trace.getReceipt().getStorageDelta());
@@ -162,8 +161,6 @@ public class TransactionTraceTest {
     } catch (ContractExeException e) {
       e.printStackTrace();
     } catch (ContractValidateException e) {
-      e.printStackTrace();
-    } catch (OutOfSlotTimeException e) {
       e.printStackTrace();
     }
   }
@@ -198,7 +195,7 @@ public class TransactionTraceTest {
       e.printStackTrace();
     } catch (ContractValidateException e) {
       e.printStackTrace();
-    } catch (OutOfSlotTimeException e) {
+    } catch (BalanceInsufficientException e) {
       e.printStackTrace();
     }
   }
@@ -256,8 +253,12 @@ public class TransactionTraceTest {
     TransactionCapsule transactionCapsule = new TransactionCapsule(transaction);
     TransactionTrace transactionTrace = new TransactionTrace(transactionCapsule, dbManager);
     // transactionTrace.setBill(this.energyUsage, this.storageUsage);
-    transactionTrace.pay();
-    AccountCapsule accountCapsule1 = dbManager.getAccountStore().get(ownerAddress.toByteArray());
+    try {
+      transactionTrace.pay();
+      AccountCapsule accountCapsule1 = dbManager.getAccountStore().get(ownerAddress.toByteArray());
+    } catch (BalanceInsufficientException e) {
+      e.printStackTrace();
+    }
   }
 
   /**

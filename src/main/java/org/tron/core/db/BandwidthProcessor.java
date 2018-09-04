@@ -8,12 +8,14 @@ import java.util.List;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.tron.common.utils.ByteArray;
+import org.tron.core.Constant;
 import org.tron.core.capsule.AccountCapsule;
 import org.tron.core.capsule.AssetIssueCapsule;
 import org.tron.core.capsule.TransactionCapsule;
 import org.tron.core.capsule.TransactionResultCapsule;
 import org.tron.core.exception.AccountResourceInsufficientException;
 import org.tron.core.exception.ContractValidateException;
+import org.tron.core.exception.TooBigTransactionResultException;
 import org.tron.protos.Contract.TransferAssetContract;
 import org.tron.protos.Contract.TransferContract;
 import org.tron.protos.Protocol.Transaction.Contract;
@@ -50,14 +52,29 @@ public class BandwidthProcessor extends ResourceProcessor {
   @Override
   public void consume(TransactionCapsule trx, TransactionResultCapsule ret,
       TransactionTrace trace)
-      throws ContractValidateException, AccountResourceInsufficientException {
-    List<Contract> contracts =
-        trx.getInstance().getRawData().getContractList();
+      throws ContractValidateException, AccountResourceInsufficientException, TooBigTransactionResultException {
+    List<Contract> contracts = trx.getInstance().getRawData().getContractList();
+    if (trx.getResultSerializedSize() > Constant.MAX_RESULT_SIZE_IN_TX * contracts.size()) {
+      throw new TooBigTransactionResultException();
+    }
+
+    long bytesSize;
+    if (dbManager.getDynamicPropertiesStore().supportVM()) {
+      TransactionCapsule txCapForEstimateBandWidth = new TransactionCapsule(
+          trx.getInstance().getRawData(),
+          trx.getInstance().getSignatureList());
+      bytesSize = txCapForEstimateBandWidth.getSerializedSize();
+    } else {
+      bytesSize = trx.getSerializedSize();
+    }
 
     for (Contract contract : contracts) {
-      long bytes = trx.getSerializedSize();
-      logger.debug("trxId {},bandwidth cost :{}", trx.getTransactionId(), bytes);
-      trace.setNetBill(bytes, 0);
+      if (dbManager.getDynamicPropertiesStore().supportVM()) {
+        bytesSize += Constant.MAX_RESULT_SIZE_IN_TX;
+      }
+
+      logger.debug("trxId {},bandwidth cost :{}", trx.getTransactionId(), bytesSize);
+      trace.setNetBill(bytesSize, 0);
       byte[] address = TransactionCapsule.getOwner(contract);
       AccountCapsule accountCapsule = dbManager.getAccountStore().get(address);
       if (accountCapsule == null) {
@@ -66,33 +83,33 @@ public class BandwidthProcessor extends ResourceProcessor {
       long now = dbManager.getWitnessController().getHeadSlot();
 
       if (contractCreateNewAccount(contract)) {
-        consumeForCreateNewAccount(accountCapsule, bytes, now, ret);
+        consumeForCreateNewAccount(accountCapsule, bytesSize, now, ret);
         trace.setNetBill(0, ret.getFee());
         continue;
       }
 
       if (contract.getType() == TransferAssetContract) {
-        if (useAssetAccountNet(contract, accountCapsule, now, bytes)) {
+        if (useAssetAccountNet(contract, accountCapsule, now, bytesSize)) {
           continue;
         }
       }
 
-      if (useAccountNet(accountCapsule, bytes, now)) {
+      if (useAccountNet(accountCapsule, bytesSize, now)) {
         continue;
       }
 
-      if (useFreeNet(accountCapsule, bytes, now)) {
+      if (useFreeNet(accountCapsule, bytesSize, now)) {
         continue;
       }
 
-      if (useTransactionFee(accountCapsule, bytes, ret)) {
+      if (useTransactionFee(accountCapsule, bytesSize, ret)) {
         trace.setNetBill(0, ret.getFee());
         continue;
       }
 
-      long fee = dbManager.getDynamicPropertiesStore().getTransactionFee() * bytes;
+      long fee = dbManager.getDynamicPropertiesStore().getTransactionFee() * bytesSize;
       throw new AccountResourceInsufficientException(
-          "Account Insufficient bandwidth[" + bytes + "] and balance["
+          "Account Insufficient bandwidth[" + bytesSize + "] and balance["
               + fee + "] to create new account");
     }
   }

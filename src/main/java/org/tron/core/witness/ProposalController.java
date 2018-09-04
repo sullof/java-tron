@@ -41,11 +41,13 @@ public class ProposalController {
             .get(ProposalCapsule.calculateDbKey(proposalNum));
       } catch (Exception ex) {
         logger.error("", ex);
+        continue;
       }
 
       if (proposalCapsule.hasProcessed()) {
         logger
-            .info("Proposal has processed，id:[{}],skip it and before it", proposalCapsule.getID());
+            .info("Proposal has processed，id:[{}],skip it and before it",
+                proposalCapsule.getID());
         //proposals with number less than this one, have been processed before
         break;
       }
@@ -135,7 +137,21 @@ public class ProposalController {
           break;
         }
         case (10): {
-          manager.getDynamicPropertiesStore().saveRemoveThePowerOfTheGr(entry.getValue());
+          if (manager.getDynamicPropertiesStore().getRemoveThePowerOfTheGr() == 0) {
+            manager.getDynamicPropertiesStore().saveRemoveThePowerOfTheGr(entry.getValue());
+          }
+          break;
+        }
+        case (11): {
+          manager.getDynamicPropertiesStore().saveEnergyFee(entry.getValue());
+          break;
+        }
+        case (12): {
+          manager.getDynamicPropertiesStore().saveExchangeCreateFee(entry.getValue());
+          break;
+        }
+        case (13): {
+          manager.getDynamicPropertiesStore().saveMaxCpuTimeOfOneTX(entry.getValue());
           break;
         }
         default:
