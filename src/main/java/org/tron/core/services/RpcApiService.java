@@ -958,21 +958,26 @@ public class RpcApiService implements Service {
     @Override
     public void createWitness(WitnessCreateContract request,
         StreamObserver<Transaction> responseObserver) {
-      try {
-        responseObserver.onNext(
-            createTransactionCapsule(request, ContractType.WitnessCreateContract).getInstance());
-      } catch (ContractValidateException e) {
-        responseObserver
-            .onNext(null);
-        logger.debug("ContractValidateException: {}", e.getMessage());
-      }
+      responseObserver.onNext(null);
       responseObserver.onCompleted();
+//
+//
+//      try {
+//        responseObserver.onNext(
+//            createTransactionCapsule(request, ContractType.WitnessCreateContract).getInstance());
+//      } catch (ContractValidateException e) {
+//        responseObserver
+//            .onNext(null);
+//        logger.debug("ContractValidateException: {}", e.getMessage());
+//      }
+//      responseObserver.onCompleted();
     }
 
     @Override
     public void createWitness2(WitnessCreateContract request,
         StreamObserver<TransactionExtention> responseObserver) {
-      createTransactionExtention(request, ContractType.WitnessCreateContract, responseObserver);
+      return;
+//      createTransactionExtention(request, ContractType.WitnessCreateContract, responseObserver);
     }
 
     @Override
