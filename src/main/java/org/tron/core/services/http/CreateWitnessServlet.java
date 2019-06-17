@@ -28,7 +28,7 @@ public class CreateWitnessServlet extends HttpServlet {
 
   protected void doPost(HttpServletRequest request, HttpServletResponse response) {
     try {
-      throw new Exception("API not allowed");
+      throw new Exception("API not allowed on this node.");
 //      String contract = request.getReader().lines()
 //          .collect(Collectors.joining(System.lineSeparator()));
 //      Util.checkBodySize(contract);
